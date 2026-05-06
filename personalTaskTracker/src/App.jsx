@@ -8,12 +8,12 @@ const supabase = createClient(
 );
 
 const COLORS = [
-  {card:'#FFF9E6',dot:'#BA7517',check:'#EF9F27',border:'#FAC77566'},
-  {card:'#E8F5FF',dot:'#185FA5',check:'#378ADD',border:'#85B7EB66'},
-  {card:'#F0FBF5',dot:'#0F6E56',check:'#1D9E75',border:'#5DCAA566'},
-  {card:'#FDF0F8',dot:'#993556',check:'#D4537E',border:'#ED93B166'},
-  {card:'#F2F0FF',dot:'#534AB7',check:'#7F77DD',border:'#AFA9EC66'},
-  {card:'#FFF0ED',dot:'#993C1D',check:'#D85A30',border:'#F0997B66'},
+  {card:'#ffffff',dot:'#2563eb',check:'#1d4ed8',border:'#bfdbfe'},
+  {card:'#f0f7ff',dot:'#0f766e',check:'#0f9f8f',border:'#99f6e4'},
+  {card:'#f8fbff',dot:'#7c3aed',check:'#6d28d9',border:'#ddd6fe'},
+  {card:'#f8fafc',dot:'#ea580c',check:'#f97316',border:'#fed7aa'},
+  {card:'#f7fdf9',dot:'#15803d',check:'#16a34a',border:'#bbf7d0'},
+  {card:'#fffaf5',dot:'#c2410c',check:'#ea580c',border:'#fdba74'},
 ];
 
 // ── Auth ───────────────────────────────────────────────────────────────────
