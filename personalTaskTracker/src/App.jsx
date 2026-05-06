@@ -1,4 +1,11 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
+import { createClient } from "@supabase/supabase-js";
+import "./App.css";
+
+const supabase = createClient(
+  "https://yjnzjrltkfjewqnajlsr.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlqbnpqcmx0a2ZlandxbmFqbHNyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgxMDc5MDAsImV4cCI6MjA5MzY4MzkwMH0.XLVgXMSuJrwDk44P2VopfVKRNUWWjLO3kJt8solwmpY"
+);
 
 const COLORS = [
   {card:'#FFF9E6',dot:'#BA7517',check:'#EF9F27',border:'#FAC77566'},
@@ -9,179 +16,247 @@ const COLORS = [
   {card:'#FFF0ED',dot:'#993C1D',check:'#D85A30',border:'#F0997B66'},
 ];
 
-const STORAGE_KEY = 'pinboard-data-v1';
 function genId(){ return Math.random().toString(36).slice(2,9); }
 
+// ── Auth Screen ────────────────────────────────────────────────────────────
+function AuthScreen({ onAuth }){
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [mode, setMode] = useState('login'); // 'login' | 'signup'
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const submit = async()=>{
+    setError(''); setLoading(true);
+    const fn = mode==='login'
+      ? supabase.auth.signInWithPassword({email,password})
+      : supabase.auth.signUp({email,password});
+    const {data,error:err} = await fn;
+    setLoading(false);
+    if(err){ setError(err.message); return; }
+    if(mode==='signup' && !data.session){
+      setError('Check your email to confirm your account, then log in.');
+      setMode('login');
+      return;
+    }
+    onAuth(data.session);
+  };
+
+  return (
+    <div className="auth-wrap">
+      <div className="auth-card">
+        <div className="auth-logo">📌</div>
+        <h1 className="auth-title">My Pinboard</h1>
+        <p className="auth-sub">{mode==='login'?'Welcome back':'Create your account'}</p>
+        <input className="input" type="email" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)}/>
+        <input className="input" type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)}
+          onKeyDown={e=>e.key==='Enter'&&submit()}/>
+        {error && <p className="auth-error">{error}</p>}
+        <button className="btn-primary full" onClick={submit} disabled={loading}>
+          {loading ? 'Please wait…' : mode==='login' ? 'Log in' : 'Sign up'}
+        </button>
+        <p className="auth-toggle">
+          {mode==='login'?'No account? ':'Already have one? '}
+          <span onClick={()=>{setMode(mode==='login'?'signup':'login');setError('');}}>
+            {mode==='login'?'Sign up':'Log in'}
+          </span>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Main App ───────────────────────────────────────────────────────────────
 export default function App(){
+  const [session, setSession] = useState(null);
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
 
   useEffect(()=>{
-    (async()=>{
-      try{
-        const r = await window.storage.get(STORAGE_KEY);
-        if(r?.value) setProjects(JSON.parse(r.value));
-      }catch(e){}
-      setLoading(false);
-    })();
+    supabase.auth.getSession().then(({data})=>setSession(data.session));
+    const {data:{subscription}} = supabase.auth.onAuthStateChange((_,s)=>setSession(s));
+    return ()=>subscription.unsubscribe();
   },[]);
 
-  const save = useCallback(async(p)=>{
-    try{ await window.storage.set(STORAGE_KEY, JSON.stringify(p)); }catch(e){}
-  },[]);
+  useEffect(()=>{
+    if(!session){ setLoading(false); return; }
+    loadProjects();
+  },[session]);
 
-  const upd = (p)=>{ setProjects(p); save(p); };
+  const loadProjects = async()=>{
+    setLoading(true);
+    const {data:projs} = await supabase.from('projects').select('*').order('created_at');
+    const {data:taskRows} = await supabase.from('tasks').select('*').order('position');
+    const merged = (projs||[]).map(p=>({
+      ...p,
+      color: p.color,
+      tasks: (taskRows||[]).filter(t=>t.project_id===p.id),
+      newTask:'',
+    }));
+    setProjects(merged);
+    setLoading(false);
+  };
 
-  const addProject = ()=>{
+  const addProject = async()=>{
     const name = newName.trim();
     if(!name) return;
-    const col = COLORS[projects.length % COLORS.length];
-    upd([...projects, {id:genId(), name, color:col, tasks:[], newTask:''}]);
+    const color = COLORS[projects.length % COLORS.length];
+    const {data,error} = await supabase.from('projects').insert({
+      name, color, user_id: session.user.id
+    }).select().single();
+    if(error||!data) return;
+    setProjects(ps=>[...ps,{...data,tasks:[],newTask:''}]);
     setNewName(''); setAdding(false);
   };
 
-  const delProject = (id)=> upd(projects.filter(p=>p.id!==id));
-
-  const setTaskInput = (id, val)=> setProjects(ps=>ps.map(p=>p.id===id?{...p,newTask:val}:p));
-
-  const addTask = (id)=>{
-    const proj = projects.find(p=>p.id===id);
-    const t = proj?.newTask?.trim();
-    if(!t) return;
-    upd(projects.map(p=>p.id===id?{...p,tasks:[...p.tasks,{id:genId(),title:t,done:false}],newTask:''}:p));
+  const delProject = async(id)=>{
+    await supabase.from('projects').delete().eq('id',id);
+    setProjects(ps=>ps.filter(p=>p.id!==id));
   };
 
-  const toggleTask = (pid, tid)=>
-    upd(projects.map(p=>p.id===pid?{...p,tasks:p.tasks.map(t=>t.id===tid?{...t,done:!t.done}:t)}:p));
-
-  const delTask = (pid, tid)=>
-    upd(projects.map(p=>p.id===pid?{...p,tasks:p.tasks.filter(t=>t.id!==tid)}:p));
-
-  const renameProject = (id, name)=>{
+  const renameProject = async(id, name)=>{
     if(!name.trim()) return;
-    upd(projects.map(p=>p.id===id?{...p,name:name.trim()}:p));
+    await supabase.from('projects').update({name:name.trim()}).eq('id',id);
+    setProjects(ps=>ps.map(p=>p.id===id?{...p,name:name.trim()}:p));
   };
 
-  if(loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:400,color:'var(--color-text-tertiary)',fontSize:14}}>Loading your board…</div>;
+  const setTaskInput = (id,val)=>
+    setProjects(ps=>ps.map(p=>p.id===id?{...p,newTask:val}:p));
+
+  const addTask = async(id)=>{
+    const proj = projects.find(p=>p.id===id);
+    const title = proj?.newTask?.trim();
+    if(!title) return;
+    const pos = proj.tasks.length;
+    const {data,error} = await supabase.from('tasks').insert({
+      project_id:id, title, done:false, position:pos
+    }).select().single();
+    if(error||!data) return;
+    setProjects(ps=>ps.map(p=>p.id===id?{...p,tasks:[...p.tasks,data],newTask:''}:p));
+  };
+
+  const toggleTask = async(pid,tid,done)=>{
+    await supabase.from('tasks').update({done}).eq('id',tid);
+    setProjects(ps=>ps.map(p=>p.id===pid?{...p,tasks:p.tasks.map(t=>t.id===tid?{...t,done}:t)}:p));
+  };
+
+  const delTask = async(pid,tid)=>{
+    await supabase.from('tasks').delete().eq('id',tid);
+    setProjects(ps=>ps.map(p=>p.id===pid?{...p,tasks:p.tasks.filter(t=>t.id!==tid)}:p));
+  };
+
+  const signOut = ()=> supabase.auth.signOut();
+
+  if(!session) return <AuthScreen onAuth={setSession}/>;
+  if(loading) return <div className="loading">Loading your board…</div>;
 
   return (
-    <div style={{minHeight:500,fontFamily:'var(--font-sans)',fontSize:14,padding:'20px 4px 24px'}}>
-      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20,paddingBottom:14,borderBottom:'0.5px solid var(--color-border-tertiary)'}}>
-        <span style={{fontWeight:500,fontSize:16}}>📌 My Pinboard</span>
-        <button onClick={()=>setAdding(true)}
-          style={{padding:'7px 16px',border:'0.5px solid var(--color-border-secondary)',borderRadius:'var(--border-radius-md)',background:'var(--color-text-primary)',color:'var(--color-background-primary)',fontSize:13,cursor:'pointer'}}>
-          + New project
-        </button>
+    <div className="app">
+      <div className="header">
+        <span className="header-title">📌 My Pinboard</span>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <span className="user-email">{session.user.email}</span>
+          <button className="btn-ghost" onClick={signOut}>Sign out</button>
+          <button className="btn-primary" onClick={()=>setAdding(true)}>+ New project</button>
+        </div>
       </div>
 
       {adding && (
-        <div style={{marginBottom:16,display:'flex',gap:8}}>
+        <div className="add-row">
           <input autoFocus value={newName} onChange={e=>setNewName(e.target.value)}
             onKeyDown={e=>{if(e.key==='Enter')addProject();if(e.key==='Escape'){setAdding(false);setNewName('');}}}
-            placeholder="Project name…"
-            style={{flex:1,padding:'8px 12px',border:'0.5px solid var(--color-border-secondary)',borderRadius:'var(--border-radius-md)',background:'var(--color-background-primary)',color:'var(--color-text-primary)',fontSize:13}}/>
-          <button onClick={addProject} style={{padding:'8px 16px',borderRadius:'var(--border-radius-md)',border:'0.5px solid var(--color-border-secondary)',background:'var(--color-text-primary)',color:'var(--color-background-primary)',fontSize:13,cursor:'pointer'}}>Add</button>
-          <button onClick={()=>{setAdding(false);setNewName('');}} style={{padding:'8px 14px',borderRadius:'var(--border-radius-md)',border:'0.5px solid var(--color-border-secondary)',background:'transparent',color:'var(--color-text-secondary)',fontSize:13,cursor:'pointer'}}>Cancel</button>
+            placeholder="Project name…" className="input"/>
+          <button className="btn-primary" onClick={addProject}>Add</button>
+          <button className="btn-ghost" onClick={()=>{setAdding(false);setNewName('');}}>Cancel</button>
         </div>
       )}
 
       {projects.length===0 && !adding && (
-        <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:300,gap:12,color:'var(--color-text-tertiary)'}}>
-          <span style={{fontSize:40}}>📌</span>
-          <p style={{fontSize:14}}>Your pinboard is empty — create your first project!</p>
+        <div className="empty">
+          <span>📌</span>
+          <p>Your pinboard is empty — create your first project!</p>
         </div>
       )}
 
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:14,alignItems:'start'}}>
-        {projects.map(p=><ProjectCard key={p.id} proj={p}
-          onDelete={()=>delProject(p.id)}
-          onToggle={(tid)=>toggleTask(p.id,tid)}
-          onDelTask={(tid)=>delTask(p.id,tid)}
-          onTaskInput={(v)=>setTaskInput(p.id,v)}
-          onAddTask={()=>addTask(p.id)}
-          onRename={(n)=>renameProject(p.id,n)}
-        />)}
+      <div className="board">
+        {projects.map(p=>(
+          <ProjectCard key={p.id} proj={p}
+            onDelete={()=>delProject(p.id)}
+            onToggle={(tid,done)=>toggleTask(p.id,tid,done)}
+            onDelTask={(tid)=>delTask(p.id,tid)}
+            onTaskInput={(v)=>setTaskInput(p.id,v)}
+            onAddTask={()=>addTask(p.id)}
+            onRename={(n)=>renameProject(p.id,n)}
+          />
+        ))}
       </div>
     </div>
   );
 }
 
-function ProjectCard({proj, onDelete, onToggle, onDelTask, onTaskInput, onAddTask, onRename}){
+// ── Project Card ───────────────────────────────────────────────────────────
+function ProjectCard({proj,onDelete,onToggle,onDelTask,onTaskInput,onAddTask,onRename}){
   const {color,tasks,name,newTask} = proj;
   const done = tasks.filter(t=>t.done).length;
   const total = tasks.length;
   const pct = total ? Math.round((done/total)*100) : 0;
   const [editing, setEditing] = useState(false);
   const [editVal, setEditVal] = useState(name);
-  const [hoveringDel, setHoveringDel] = useState(false);
 
   return (
-    <div style={{background:color.card,border:`1px solid ${color.border}`,borderRadius:12,padding:'14px 14px 12px',display:'flex',flexDirection:'column',gap:10,position:'relative'}}>
-      {/* Header */}
-      <div style={{display:'flex',alignItems:'flex-start',gap:6}}>
-        <span style={{width:9,height:9,borderRadius:'50%',background:color.dot,display:'inline-block',flexShrink:0,marginTop:4}}></span>
-        <div style={{flex:1,minWidth:0}}>
-          {editing ? (
-            <input autoFocus value={editVal}
-              onChange={e=>setEditVal(e.target.value)}
+    <div className="card" style={{background:color.card,border:`1px solid ${color.border}`}}>
+      <div className="card-header">
+        <span className="dot" style={{background:color.dot}}></span>
+        <div className="card-title-wrap">
+          {editing?(
+            <input autoFocus value={editVal} onChange={e=>setEditVal(e.target.value)}
               onBlur={()=>{onRename(editVal);setEditing(false);}}
               onKeyDown={e=>{if(e.key==='Enter'){onRename(editVal);setEditing(false);}if(e.key==='Escape')setEditing(false);}}
-              style={{width:'100%',fontSize:13,fontWeight:500,border:'none',borderBottom:`1px solid ${color.dot}`,background:'transparent',color:'var(--color-text-primary)',outline:'none',padding:'0 0 2px'}}/>
+              className="title-input" style={{borderBottomColor:color.dot}}/>
           ):(
-            <span onDoubleClick={()=>{setEditing(true);setEditVal(name);}}
-              style={{fontSize:13,fontWeight:500,color:'var(--color-text-primary)',display:'block',wordBreak:'break-word',cursor:'text',lineHeight:1.4}}>
-              {name}
-            </span>
+            <span className="card-title" onDoubleClick={()=>{setEditing(true);setEditVal(name);}}>{name}</span>
           )}
-          {total>0 && <span style={{fontSize:11,color:color.dot,marginTop:2,display:'block'}}>{done}/{total} done</span>}
+          {total>0&&<span className="card-count" style={{color:color.dot}}>{done}/{total} done</span>}
         </div>
-        <button onClick={onDelete}
-          onMouseEnter={()=>setHoveringDel(true)} onMouseLeave={()=>setHoveringDel(false)}
-          style={{background:'none',border:'none',cursor:'pointer',fontSize:14,lineHeight:1,color:hoveringDel?'#E24B4A':'var(--color-text-tertiary)',padding:2,flexShrink:0,marginTop:-2}}>×</button>
+        <button className="del-btn" onClick={onDelete}>×</button>
       </div>
-
-      {/* Progress */}
-      {total>0 && (
-        <div style={{height:3,background:'rgba(0,0,0,0.08)',borderRadius:999,overflow:'hidden'}}>
-          <div style={{height:'100%',width:`${pct}%`,background:color.dot,borderRadius:999,transition:'width .3s'}}></div>
+      {total>0&&(
+        <div className="progress-track">
+          <div className="progress-bar" style={{width:`${pct}%`,background:color.dot}}></div>
         </div>
       )}
-
-      {/* Tasks */}
-      <div style={{display:'flex',flexDirection:'column',gap:4}}>
+      <div className="task-list">
         {tasks.filter(t=>!t.done).map(t=>(
-          <TaskItem key={t.id} task={t} color={color} onToggle={()=>onToggle(t.id)} onDel={()=>onDelTask(t.id)}/>
+          <TaskItem key={t.id} task={t} color={color} onToggle={()=>onToggle(t.id,!t.done)} onDel={()=>onDelTask(t.id)}/>
         ))}
         {tasks.filter(t=>t.done).map(t=>(
-          <TaskItem key={t.id} task={t} color={color} onToggle={()=>onToggle(t.id)} onDel={()=>onDelTask(t.id)}/>
+          <TaskItem key={t.id} task={t} color={color} onToggle={()=>onToggle(t.id,!t.done)} onDel={()=>onDelTask(t.id)}/>
         ))}
       </div>
-
-      {/* Add task */}
-      <div style={{display:'flex',gap:6,marginTop:2}}>
+      <div className="add-task-row">
         <input value={newTask||''} onChange={e=>onTaskInput(e.target.value)}
           onKeyDown={e=>e.key==='Enter'&&onAddTask()}
-          placeholder="Add task…"
-          style={{flex:1,padding:'5px 8px',border:`0.5px solid ${color.border}`,borderRadius:'var(--border-radius-md)',background:'rgba(255,255,255,0.6)',color:'var(--color-text-primary)',fontSize:12,outline:'none'}}/>
-        <button onClick={onAddTask}
-          style={{padding:'5px 10px',border:'none',borderRadius:'var(--border-radius-md)',background:color.dot,color:'#fff',fontSize:13,cursor:'pointer',lineHeight:1}}>+</button>
+          placeholder="Add task…" className="task-input"
+          style={{border:`0.5px solid ${color.border}`}}/>
+        <button className="add-task-btn" style={{background:color.dot}} onClick={onAddTask}>+</button>
       </div>
     </div>
   );
 }
 
-function TaskItem({task, color, onToggle, onDel}){
-  const [hover, setHover] = useState(false);
-  return (
-    <div onMouseEnter={()=>setHover(true)} onMouseLeave={()=>setHover(false)}
-      style={{display:'flex',alignItems:'center',gap:7,padding:'4px 2px',borderRadius:6}}>
-      <div onClick={onToggle} style={{width:15,height:15,borderRadius:'50%',border:`1.5px solid ${task.done?color.check:'rgba(0,0,0,0.2)'}`,background:task.done?color.check:'transparent',flexShrink:0,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
-        {task.done && <span style={{color:'#fff',fontSize:9,lineHeight:1}}>✓</span>}
+// ── Task Item ──────────────────────────────────────────────────────────────
+function TaskItem({task,color,onToggle,onDel}){
+  const [hover,setHover]=useState(false);
+  return(
+    <div className="task-item" onMouseEnter={()=>setHover(true)} onMouseLeave={()=>setHover(false)}>
+      <div className="task-check" onClick={onToggle}
+        style={{border:`1.5px solid ${task.done?color.check:'rgba(0,0,0,0.2)'}`,background:task.done?color.check:'transparent'}}>
+        {task.done&&<span className="check-mark">✓</span>}
       </div>
-      <span style={{flex:1,fontSize:12,color:task.done?'rgba(0,0,0,0.35)':'var(--color-text-primary)',textDecoration:task.done?'line-through':'none',lineHeight:1.4,wordBreak:'break-word'}}>{task.title}</span>
-      {hover && <button onClick={onDel} style={{background:'none',border:'none',cursor:'pointer',fontSize:12,color:'rgba(0,0,0,0.3)',padding:0,lineHeight:1,flexShrink:0}}>×</button>}
+      <span className="task-title" style={{color:task.done?'rgba(0,0,0,0.35)':'#1a1a1a',textDecoration:task.done?'line-through':'none'}}>{task.title}</span>
+      {hover&&<button className="task-del" onClick={onDel}>×</button>}
     </div>
   );
 }
