@@ -261,3 +261,52 @@ body {
   font-size: 16px; cursor: pointer; line-height: 1;
 }
 .add-task-btn:hover { opacity: 0.85; }
+
+/* ── Resources ── */
+.res-toggle {
+  display: flex; align-items: center; gap:6px;
+  width: 100%; background: none; border: none;
+  border-top: 0.5px solid;
+  padding: 8px 2px 0;
+  font-size: 12px; font-weight: 500;
+  cursor: pointer; text-align: left;
+}
+.res-toggle:hover { opacity: 0.75; }
+.res-count {
+  background: rgba(0,0,0,0.08);
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-size: 11px;
+}
+.res-panel { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+
+.res-list { display: flex; flex-direction: column; gap: 4px; }
+.res-item {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; padding: 3px 0;
+}
+.res-icon { font-size: 13px; flex-shrink: 0; }
+.res-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.res-label a { color: #185FA5; text-decoration: none; }
+.res-label a:hover { text-decoration: underline; }
+
+.res-tabs { display: flex; border-bottom: 1px solid #e5e5e3; gap: 0; }
+.res-tab {
+  flex: 1; background: none; border: none;
+  border-bottom: 2px solid transparent;
+  padding: 5px 4px; font-size: 11px;
+  cursor: pointer; color: #888;
+  margin-bottom: -1px;
+}
+.res-tab.active { font-weight: 500; }
+.res-tab:hover { color: #333; }
+
+.res-form { display: flex; flex-direction: column; gap: 4px; }
+
+.file-label {
+  display: flex; align-items: center; justify-content: center;
+  border: 1px dashed; border-radius: 8px;
+  padding: 14px; font-size: 12px; color: #888;
+  cursor: pointer; text-align: center;
+}
+.file-label:hover { background: rgba(0,0,0,0.03); }
